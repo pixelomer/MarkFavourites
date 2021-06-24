@@ -1,6 +1,7 @@
-GO_EASY_ON_ME=1
+# don't
+#GO_EASY_ON_ME=1
 
-ARCHS = armv7 arm64
+ARCHS = armv7 arm64 arm64e
 
 include $(THEOS)/makefiles/common.mk
 
@@ -11,5 +12,5 @@ MarkFavourites_CFLAGS = -fobjc-arc
 
 include $(THEOS_MAKE_PATH)/tweak.mk
 
-after-install::
-	install.exec "killall -9 MobileSlideShow"
+#after-install::
+#	install.exec "killall -9 MobileSlideShow"

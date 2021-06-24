@@ -28,3 +28,36 @@
 @interface UIView (Internal)
 -(id)_viewControllerForAncestor;
 @end
+
+@protocol PXFastEnumeration<NSFastEnumeration>
+@end
+
+@interface PXEnumerator : NSObject<PXFastEnumeration>
+- (PHAsset *)nextObject;
+- (void)reset;
+- (NSInteger)count;
+@end
+
+@interface PXSelectionSnapshot : NSObject
+- (PXEnumerator *)allObjectsEnumerator;
+@end
+
+@interface PXSectionedSelectionManager : NSObject
+- (void)_performSelectAll;
+@end
+
+@interface PXAssetSelectionUserActivityController : NSObject
+- (PXSectionedSelectionManager *)selectionManager;
+- (PXSelectionSnapshot *)selectionSnapshot;
+@end
+
+// Not an actual protocol
+@protocol PhotoViewController
+- (PXAssetSelectionUserActivityController *)userActivityController;
+@end
+
+@interface PXCuratedLibraryUIViewController : UIViewController<PhotoViewController>
+@end
+
+@interface PXPhotosUIViewController : UIViewController<PhotoViewController>
+@end

@@ -1,18 +1,27 @@
+#import <UIKit/UIKit.h>
 #import "interfaces.h"
 
-inline UIImage* heartImage(BOOL on)
+#define NSLog(args...) NSLog(@"[MarkFavourites] "args)
+
+static UIImage* heartImage(BOOL on)
 {
-    NSString* name;
-    if (on)
-        name = @"PUFavoriteOn";
-    else
-        name = @"PUFavoriteOff";
-    NSBundle* bundle = [NSBundle bundleWithPath:@"/System/Library/Frameworks/PhotosUI.framework"];
-    return [UIImage imageNamed:name inBundle:bundle];
+    if (@available(iOS 14.0, *)) {
+        return [UIImage systemImageNamed:(on ? @"heart.fill" : @"heart")];
+    }
+    else {
+        NSString* name;
+        if (on)
+            name = @"PUFavoriteOn";
+        else
+            name = @"PUFavoriteOff";
+        NSBundle* bundle = [NSBundle bundleWithPath:@"/System/Library/Frameworks/PhotosUI.framework"];
+        return [UIImage imageNamed:name inBundle:bundle];
+    }
 }
 
 static UIBarButtonItem* favButton;
 
+%group iOS13
 %hook UIToolbar
 -(void)setItems:(NSArray*)items animated:(BOOL)arg2
 {
@@ -131,3 +140,135 @@ static UIBarButtonItem* favButton;
     }
 }
 %end
+%end
+
+static NSArray *setToolbarItemsHook(UIViewController<PhotoViewController> *self, NSArray *items) {
+    if (items.count == 5) {
+        NSMutableArray *newItems = [items mutableCopy];
+        PXEnumerator *enumerator = [[[self userActivityController] selectionSnapshot] allObjectsEnumerator];
+
+        // Replace the "N Photos Selected" button if there are no selected photos
+        if ([enumerator count] == 0) {
+            UIBarButtonItem *selectAllButton = [[UIBarButtonItem alloc]
+                initWithTitle:@"Select All"
+                style:UIBarButtonItemStylePlain
+                target:self
+                action:@selector(markFavourites_didPressSelectAll:)
+            ];
+            newItems[2] = selectAllButton;
+        }
+
+        // Figure out if the heart should be filled or not
+        BOOL fillHeart = YES;
+        if ([enumerator count] == 0) {
+            fillHeart = NO;
+        }
+        else {
+            for (PHAsset *asset in enumerator) {
+                if (!asset.favorite) {
+                    fillHeart = NO;
+                    break;
+                }
+            }
+        }
+
+        // Add the heart
+        UIBarButtonItem *newItem = [[UIBarButtonItem alloc]
+            initWithImage:heartImage(fillHeart)
+            style:UIBarButtonItemStylePlain
+            target:self
+            action:@selector(markFavourites_didPressHeart:)
+        ];
+        if ([enumerator count] == 0) {
+            newItem.enabled = NO;
+        }
+        [newItems insertObject:newItem atIndex:4];
+        items = (NSArray *)newItems;
+    }
+    return items;
+}
+
+static void didPressSelectAll(UIViewController<PhotoViewController> *self) {
+    [[[self userActivityController] selectionManager] _performSelectAll];
+    [self setToolbarItems:[self toolbarItems]];
+}
+
+static void didPressHeart(UIViewController<PhotoViewController> *self) {
+    PXEnumerator *enumerator = [[[self userActivityController] selectionSnapshot] allObjectsEnumerator];
+    BOOL makeFavorite = NO;
+    for (PHAsset *asset in enumerator) {
+        if (!asset.favorite) {
+            makeFavorite = YES;
+            break;
+        }
+    }
+    [[%c(PHPhotoLibrary) sharedPhotoLibrary] performChanges:^{
+        for (PHAsset* asset in enumerator) {
+            PHAssetChangeRequest *request = [%c(PHAssetChangeRequest) changeRequestForAsset:asset];
+            request.favorite = makeFavorite;
+        }
+    } completionHandler:^(BOOL success, NSError *error){
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self setToolbarItems:[self toolbarItems]];
+        });
+    }];
+}
+
+// We don't need to hook the observer method. When the selection changes,
+// -[PXBarsController updateBars] calls -[PXCuratedLibraryUIViewController
+// setToolbarItems:] for us.
+
+/* - (void)observable:(id)observable didChange:(NSUInteger)arg2 context:(void *)arg3 {
+    if (arg2 == 8) {
+        // 8 means "selection changed" (?)
+
+    }
+    %orig;
+} */
+
+%group iOS14
+%hook PXPhotosUIViewController
+
+%new
+- (void)markFavourites_didPressSelectAll:(UIBarButtonItem *)sender {
+    didPressSelectAll(self);
+}
+
+%new
+- (void)markFavourites_didPressHeart:(UIBarButtonItem *)sender {
+    didPressHeart(self);
+}
+
+- (void)setToolbarItems:(NSArray<UIBarButtonItem *> *)items {
+    %orig(setToolbarItemsHook(self, items));
+}
+
+%end
+
+%hook PXCuratedLibraryUIViewController
+
+%new
+- (void)markFavourites_didPressSelectAll:(UIBarButtonItem *)sender {
+    didPressSelectAll(self);
+}
+
+%new
+- (void)markFavourites_didPressHeart:(UIBarButtonItem *)sender {
+    didPressHeart(self);
+}
+
+- (void)setToolbarItems:(NSArray<UIBarButtonItem *> *)items {
+    %orig(setToolbarItemsHook(self, items));
+}
+
+%end
+%end
+
+%ctor {
+    if (@available(iOS 14.0, *)) {
+        %init(iOS14);
+    }
+    else {
+        %init(iOS13);
+    }
+}
